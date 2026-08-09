@@ -1,3 +1,5 @@
+#:set color_cosmos 0.2, 0, 0.1, 1
+
 <MainScreen>:
     MDBoxLayout: 
         orientation: 'vertical'     
@@ -14,6 +16,7 @@
         Image:
             source: 'assets/images/rocket.png'
             size_hint_y: 0.7
+            size: dp(50), dp(50)
             allow_stretch: True
         MDRectangleFlatButton: # Більш сучасний - MDButton
             text: "PLAY"
@@ -34,6 +37,7 @@
 
 <GameScreen>:
     MDFloatLayout:
+        md_bg_color: color_cosmos
         MDFloatLayout:
             id: game
             MDFloatLayout:
@@ -46,3 +50,31 @@
 
         MDFloatLayout:
             id: interface
+        
+            MDBoxLayout:
+                spacing: dp(20)
+                padding: dp(20)
+                MDFloatingActionButton:
+                    icon: "arrow-left-bold"
+                    on_press: root.pressKey('left')
+                    on_release: root.releaseKey('left')
+                MDFloatingActionButton:
+                    icon: "arrow-right-bold"
+                    on_press: root.pressKey('right')
+                    on_release: root.releaseKey('right')
+                Widget:
+                MDFloatingActionButton:
+                    icon: "arrow-up-bold"
+                    on_press: root.pressKey('shot')
+                    on_release: root.releaseKey('shot')
+                
+<Shot>:
+    size_hint: None, None
+    size: 20, 20
+    md_bg_color: app.theme_cls.primary_color
+                
+                
+                
+                
+                
+                
