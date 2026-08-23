@@ -90,3 +90,52 @@
     size_hint: None, None
     size: 20, 20
     md_bg_color: app.theme_cls.primary_color
+
+
+<GameOverScreen>:
+    MDBoxLayout:
+        orientation: 'vertical'
+        padding: '50dp'
+        spacing: '30dp'
+        MDLabel:
+            text: 'GAME OVER'
+            font_size: '100sp'
+            halign: 'center'
+            color: app.theme_cls.accent_color
+        MDIcon:
+            icon: 'skull'
+            font_size: '200sp'
+            size_hint: None, None
+            pos_hint: {'center_x': 0.5}
+            color: app.theme_cls.accent_color
+        MDWidget:
+            size_hint_y: 0.5
+        MDRectangleFlatButton:
+            text: 'MENU'
+            font_size: '60sp'
+            pos_hint: {'center_x': 0.5}
+            theme_text_color: 'Custom'
+            line_color: 1, 0, 0, 1
+            text_color: 1, 0, 0, 1
+            on_press: root.manager.current = 'main'
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
