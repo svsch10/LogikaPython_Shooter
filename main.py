@@ -3,7 +3,7 @@ from kivymd.uix.widget import MDWidget
 from kivymd.uix.screenmanager import MDScreenManager
 from kivymd.uix.screen import MDScreen
 from kivy.clock import Clock
-from kivy.metrics import sp, dp
+from kivy.metrics import dp
 from kivy.core.window import Window
 from kivy import platform
 from kivy.uix.image import Image
@@ -11,34 +11,41 @@ from random import randint
 from kivymd.uix.button import MDFlatButton
 from kivymd.uix.dialog import MDDialog
 from kivy.core.window import Keyboard
+from kivy.properties import NumericProperty
+from kivymd.uix.floatlayout import MDFloatLayout
+from kivymd.uix.fitimage import FitImage
 
-
-class MainScreen(MDScreen):
-    ...
-
-class GameOverScreen(MDScreen):
-    pass
 
 FPS = 60
-
 BULLET_SPEED = dp(10)
 SHIP_SPEED = dp(5)
 DIR_UP = 1
 DIR_DOWN = -1
 SPAWN_ENEMY_TIME = 2
-
+HP_DEF = 3
+FIRE_RATE_MIN = 0.5
+FIRE_RATE_MEDIUM = 2
+FIRE_RATE_DEF = FIRE_RATE_MIN
 
 class Shot(MDWidget):
     def __init__(self, direction, owner, **kwargs):
         super().__init__(**kwargs)
         self.direction = direction
-        self.owner = owner
+        self.owner = owner  # хто стріляв (гравець або ворог)
 
 
 class Ship(Image):
-    def __init__(self, direction = DIR_UP, **kwargs):
+    hp = NumericProperty()
+    max_hp = NumericProperty()
+
+    def __init__(self, direction=DIR_UP, hp=HP_DEF,
+                 fire_rate = FIRE_RATE_MEDIUM,**kwargs):
         super().__init__(**kwargs)
         self.direction = direction
+        self.hp = self.max_hp = hp
+        # Швидкострільність
+        self.fire_rate = fire_rate
+        self._last_shot = self.fire_rate
 
     def moveLeft(self):
         self.pos[0] -= SHIP_SPEED
@@ -54,160 +61,159 @@ class Ship(Image):
             if self.direction == DIR_UP
             else self.y - shot.height
         )
-        '''
-        Т.зв. "тернарний вираз" - інший спосіб запису розгалуження.
-        "Тернарний" - "тричастинний": дія-True → if умова → else дія-False.
-        
-        Традиційний спосіб запису:
-        if self.direction == DIR_UP:
-            shot.y = self.top
-        else:
-            shot.y = self.y - shot.height
-        '''
-        # --- Створення кулі на екрані ---
         self.parent.parent.parent.parent.bullets.append(shot)
-        '''
-        Дерево kv таке:
-        GameScreen
-        └── MDFloatLayout
-            ├── MDFloatLayout id="game"
-            │   ├── MDFloatLayout id="back"
-            │   └── MDFloatLayout id="front"
-            │       ├── PlayerShip
-            │       └── EnemyShip
-            └── MDFloatLayout id="interface"
-        Тому, оскільки кулі обробляються в GameScreen, то потрібно
-        перейти на 4 рівні вгору, щоб туди потрапити:
-            self
-             ↓
-            front
-             ↓
-            game
-             ↓
-            MDFloatLayout (кореневий)
-             ↓
-            GameScreen
-        '''
-        self.parent.add_widget(shot) # Віджет shot додається на екран
-        '''
-        Нова структура:
-            front
-            ├── PlayerShip
-            ├── EnemyShip
-            └── Shot
-        '''
+        self.parent.add_widget(shot)
+        self._last_shot = 0
 
-    def update(self):          
-        pass
+    def update(self, dt):
+        self._last_shot += dt
 
 
 class PlayerShip(Ship):
     def __init__(self, **kwargs):
-        super().__init__(direction=DIR_UP, **kwargs)
+        super().__init__(direction=DIR_UP,
+                         fire_rate=FIRE_RATE_MIN, **kwargs)
 
-    def update(self, keys):
+    def update(self, dt, keys):
+        super().update(dt)
         for key in keys:
-            if keys[key] == True:
+            if keys[key]:
                 if key == 'left' and self.center_x > 0:
                     self.moveLeft()
                 if key == 'right' and self.center_x < Window.width:
                     self.moveRight()
                 if key == 'shot':
-                    self.shot()
+                    if self._last_shot >= self.fire_rate:
+                        self.shot()
                     keys[key] = False
 
 
 class EnemyShip(Ship):
-    def __init__(self, *args, **kwargs):
+    def __init__(self, **kwargs):
         super().__init__(direction=DIR_DOWN, **kwargs)
-        self.frame = 0 # Початковий кадр
+        self.frame = 0
 
-    def update(self):
-        super().update()
-        self.pos[1] -= dp(3)
-        if self.frame % 100 == 0:
-            self.shot() # Постріл кожні 100 оновлень кадру (frame)
-        self.frame += 1
+    def update(self, dt):
+        super().update(dt)
+        self.y -= dp(3)
+        # if self.frame % 100 == 0:
+        if self._last_shot >= self.fire_rate:
+            self.shot()
+        # self.frame += 1
+
+# Фон з прокруткою для створення паралакс-ефекту
+class MoveBackground(MDFloatLayout):
+    def __init__(self, source, speed=dp(1), scale=1, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.speed = speed
+        self.add_widget(FitImage(source=source, size_hint_y=scale))
+        self.add_widget(FitImage(source=source, size_hint_y=scale,
+                                 pos=(0, Window.size[1] * scale)))
+
+    def move(self):
+        for img in self.children:
+            img.pos[1] -= self.speed
+            if img.top <= 0:
+                img.pos[1] = img.size[1]
 
 
 class GameScreen(MDScreen):
+    game_time = NumericProperty(0) # Таймер гри
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.ship = None
         self.eventkeys = {}
-        self.ship = self.ids.ship
+        self.ship = None
         self.enemyShips = []
-
         self.bullets = []
-
         self.pauseMenu = None
-
+        # Для генерування ворожих кораблів
         self.spawn_delay = SPAWN_ENEMY_TIME
         self.time_last_spawn = 0
-
-        # Керування з клавіатури для тестування з комп'ютера
+        # Додавання на задній план картинок з прокруткою
+        self.backBack = MoveBackground(source='assets/images/cosmos.jpg',
+                                       speed=0.2)
+        self.backFront = MoveBackground(source='assets/images/planets.png',
+                                        speed=1, scale=3)
+        self.ids.back.add_widget(self.backBack)
+        self.ids.back.add_widget(self.backFront)
+        # Керування з клавіатури під час тестування з комп'ютера
         Window.bind(on_key_down=self._on_key_down)
         Window.bind(on_key_up=self._on_key_up)
 
     def on_enter(self, *args):
         self.updateEvent = Clock.schedule_interval(self.update, 1/FPS)
+        # головний корабель
         self.ship = self.ids.ship
+        self.ship.hp = self.ship.max_hp
+        self.game_time = 0
         return super().on_enter(*args)
 
     def spawn_enemy(self):
-        enemy = EnemyShip()
-        enemy.pos = (randint(0, int(Window.size[0] - enemy.size[0])),
-                    Window.size[1])
+        enemy = EnemyShip()  
+        enemy.pos = (randint(0, int(Window.width - enemy.width)),
+                     Window.height)
         self.enemyShips.append(enemy)
         self.ids.front.add_widget(enemy)
 
     def update(self, dt):
-        # Головний корабель
-        self.ship.update(self.eventkeys)
-
+        self.game_time += dt
+        # головний корабель
+        self.ship.update(dt, self.eventkeys)
+        # вороги - генерування кожні [self.spawn_delay] секунд
         self.time_last_spawn += dt
         if self.time_last_spawn >= self.spawn_delay:
             self.spawn_enemy()
             self.time_last_spawn = 0
-
-        # Логіка ворогів
+        # вороги - рух
         for ship in self.enemyShips:
-            ship.update()
+            ship.update(dt)
             if ship.top < 0:
                 self.enemyShips.remove(ship)
                 self.ids.front.remove_widget(ship)
-            
+            # зіткнення з гравцем 
             if ship.collide_widget(self.ship):
                 self.game_over()
-
-        # Керування кулями
+        # кулі
         self.manage_bullets()
+        # Прокрутка фону
+        self.backBack.move()
+        self.backFront.move()
 
-    # Рух всіх куль гри
     def manage_bullets(self):
         for bullet in self.bullets:
             bullet.y += BULLET_SPEED * bullet.direction
+            # Перевірка зіткнення
             self.check_collisions(bullet)
-            
-            # Видалення куль при виході за рамки вікна
-            if bullet.y > Window.height or bullet.top < 0:
-                self.ids.front.remove_widget(bullet)
-                self.bullets.remove(bullet)
-            
+            # Перевірка виходу за рамки вікна
+            if bullet.top < 0 or bullet.y > Window.height:
+                self.remove_bullet(bullet)
 
     def check_collisions(self, bullet):
         if bullet.owner == self.ship:
+            # перевіряємо влучання у ворога
             for enemy in self.enemyShips:
                 if bullet.collide_widget(enemy):
+                    '''
                     self.enemyShips.remove(enemy)
                     self.ids.front.remove_widget(enemy)
                     self.remove_bullet(bullet)
                     break
+                    '''
+                    enemy.hp -= 1
+                    if enemy.hp <= 0:
+                        self.enemyShips.remove(enemy)
+                        self.ids.front.remove_widget(enemy)
+                    self.remove_bullet(bullet)
+                    break
+                    
         else:
+            # перевіряємо влучання у гравця
             if bullet.collide_widget(self.ship):
-                self.game_over()
+                self.ship.hp -= 1
+                if self.ship.hp <= 0:
+                    self.game_over()
                 self.remove_bullet(bullet)
-    
+
     def remove_bullet(self, bullet):
         if bullet in self.bullets:
             self.bullets.remove(bullet)
@@ -215,12 +221,14 @@ class GameScreen(MDScreen):
 
     def game_over(self):
         self.updateEvent.cancel()
+        # Видалення ворогів
         for enemy in self.enemyShips:
             self.enemyShips.remove(enemy)
             self.ids.front.remove_widget(enemy)
+        # Видалення куль
         for bullet in self.bullets:
-            self.bullets.remove(bullet)
             self.ids.front.remove_widget(bullet)
+            self.bullets.remove(bullet)
         self.manager.current = 'game_over'
 
     def pressKey(self, key):
@@ -231,7 +239,6 @@ class GameScreen(MDScreen):
 
     def show_menu(self):
         self.updateEvent.cancel()
-        
         if not self.pauseMenu:
             self.pauseMenu = MDDialog(
                 title="Game Paused",
@@ -244,7 +251,7 @@ class GameScreen(MDScreen):
                         text_color=app.theme_cls.primary_color,
                         on_press=self.pauseStop
                     )
-                ]
+                ],
             )
         self.pauseMenu.open()
 
@@ -252,8 +259,8 @@ class GameScreen(MDScreen):
         self.pauseMenu.dismiss()
 
     def resumeGame(self, *args):
-        self.updateEvent = Clock.schedule_interval(self.update, 1 / FPS)
-
+        self.updateEvent = Clock.schedule_interval(self.update, 1/FPS)
+    
     # Керування з клавіатури під час тестування з комп'ютера
     def _on_key_down(self, window, keycode, *args, **kwargs):
         key = (
@@ -261,24 +268,23 @@ class GameScreen(MDScreen):
             if (key:=Keyboard.keycode_to_string(window, keycode))!='spacebar'
             else 'shot'
         )
-        # Завдяки оператору присвоєння := можна надати значення змінній і тут же її порівняти
-        
-        # Простіше так:
-        '''
-        key = Keyboard.keycode_to_string(window, keycode)
-        key = 'shot' if key == 'spacebar' else key
-        '''
-        
         self.eventkeys[key] = True
 
     def _on_key_up(self, window, keycode, *args, **kwargs):
         key = (
             key
-            if (key := Keyboard.keycode_to_string(window, keycode)) != 'spacebar'
+            if (key:=Keyboard.keycode_to_string(window, keycode))!='spacebar'
             else 'shot'
         )
-
         self.eventkeys[key] = False
+
+
+class GameOverScreen(MDScreen):
+    pass
+
+
+class MainScreen(MDScreen):
+    pass
 
 
 class ShooterApp(MDApp):
@@ -287,13 +293,11 @@ class ShooterApp(MDApp):
         self.theme_cls.primary_palette = "Orange"
         self.theme_cls.accent_palette = "Purple"
         self.sm = MDScreenManager()
-
         self.sm.add_widget(MainScreen(name='main'))
         self.sm.add_widget(GameScreen(name='game'))
         self.sm.add_widget(GameOverScreen(name='game_over'))
-
         return self.sm
-    
+
 
 if platform != 'android':
     Window.size = (450, 700)
