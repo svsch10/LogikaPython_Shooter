@@ -71,8 +71,7 @@ class Ship(Image):
 
 class PlayerShip(Ship):
     def __init__(self, **kwargs):
-        super().__init__(direction=DIR_UP,
-                         fire_rate=FIRE_RATE_MIN, **kwargs)
+        super().__init__(direction=DIR_UP, fire_rate=FIRE_RATE_MIN, **kwargs)
 
     def update(self, dt, keys):
         super().update(dt)
